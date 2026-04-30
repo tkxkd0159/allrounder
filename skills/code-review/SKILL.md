@@ -1,6 +1,7 @@
 ---
 name: code-review
 description: Use when reviewing branch or PR changes against a base branch for correctness, security, concurrency, architecture, maintainability, testing, and performance risks.
+disable-model-invocation: true
 ---
 
 # Code Review
