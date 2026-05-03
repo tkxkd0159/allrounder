@@ -1,0 +1,97 @@
+name: Mirror to agent-plugins
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_branch:
+        description: "Branch in tkxkd0159/agent-plugins to update."
+        required: true
+        default: "main"
+
+permissions:
+  contents: read
+
+jobs:
+  mirror:
+    name: Mirror allrounder plugin
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout allrounder
+        uses: actions/checkout@v6
+        with:
+          path: allrounder
+
+      - name: Checkout agent-plugins
+        uses: actions/checkout@v6
+        with:
+          repository: tkxkd0159/agent-plugins
+          ref: ${{ inputs.target_branch }}
+          token: ${{ secrets.GH_TOKEN }}
+          path: agent-plugins
+
+      - name: Mirror plugin files
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          rm -rf agent-plugins/plugins/allrounder
+          mkdir -p agent-plugins/plugins/allrounder
+
+          rsync_options=(
+            -a
+            --delete
+            --exclude='.git/'
+            --exclude='.github/'
+            --exclude='gemini-extension.json'
+          )
+
+          rsync "${rsync_options[@]}" allrounder/ agent-plugins/plugins/allrounder/
+
+      - name: Ensure Codex marketplace entry
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          path = Path("agent-plugins/.agents/plugins/marketplace.json")
+          data = json.loads(path.read_text())
+          entry = {
+              "name": "allrounder",
+              "source": {
+                  "source": "local",
+                  "path": "./plugins/allrounder",
+              },
+              "policy": {
+                  "installation": "AVAILABLE",
+                  "authentication": "ON_INSTALL",
+              },
+              "category": "Work",
+          }
+
+          plugins = [plugin for plugin in data.get("plugins", []) if plugin.get("name") != "allrounder"]
+          plugins.append(entry)
+          data["plugins"] = plugins
+          path.write_text(json.dumps(data, indent=2) + "\n")
+          PY
+
+      - name: Commit and push mirror
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          cd agent-plugins
+
+          if [ -z "$(git status --porcelain -- plugins/allrounder .agents/plugins/marketplace.json)" ]; then
+            echo "No mirror changes to commit."
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add plugins/allrounder .agents/plugins/marketplace.json
+          git commit -m "Mirror allrounder plugin"
+          git push
